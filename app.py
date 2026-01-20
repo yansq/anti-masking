@@ -9,6 +9,9 @@ def single_replacement(db_config):
     """
     UI and logic for single name replacement.
     """
+    st.set_page_config(
+        page_title="Anti Masking"
+    )
     st.header("单个替换")
     id_val = st.text_input("ID")
     name_a = st.text_input("原客户名")
