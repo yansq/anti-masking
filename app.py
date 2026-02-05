@@ -5,15 +5,13 @@ import pandas as pd
 import io
 
 
-def single_replacement(db_config):
+def single_replacement(db_config, env_name):
     """
     UI and logic for single name replacement.
     """
-    st.set_page_config(
-        page_title="Anti Masking"
-    )
-    st.header("单个替换")
-    id_val = st.text_input("ID")
+    st.set_page_config(page_title="Anti Masking")
+    st.header(f"单个替换 - {env_name}")
+    id_val = st.text_input("ID(ecif客户号，集团号，商户号等)")
     name_a = st.text_input("原客户名")
     name_b = st.text_input("替换后的客户名")
 
@@ -28,7 +26,9 @@ def single_replacement(db_config):
         id_column = db_config.get("id_column")
 
         if not all([db_host, db_port, db_user, db_name, db_table, db_column, name_b]):
-            st.error("请在 `config.toml` 中填写所有数据库详细信息，并在UI中填写替换后的客户名。")
+            st.error(
+                "请在 `config.toml` 中填写所有数据库详细信息，并在UI中填写替换后的客户名。"
+            )
         elif not id_val and not name_a:
             st.error("ID 和原客户名必须至少填写一个。")
         else:
@@ -69,19 +69,21 @@ def single_replacement(db_config):
                     conn.close()
 
 
-def batch_replacement(db_config):
+def batch_replacement(db_config, env_name):
     """
     UI and logic for batch name replacement.
     """
-    st.header("批量替换")
+    st.header(f"批量替换 - {env_name}")
     st.write("下载Excel模板，填写后上传以进行批量替换。")
 
     id_column_name = db_config.get("id_column", "ID")
-    template_df = pd.DataFrame({
-        id_column_name: ["示例ID1", "示例ID2"],
-        "原客户名": ["示例客户A", "示例客户B"],
-        "替换后客户名": ["新客户A", "新客户B"]
-    })
+    template_df = pd.DataFrame(
+        {
+            id_column_name: ["示例ID1", "示例ID2"],
+            "原客户名": ["示例客户A", "示例客户B"],
+            "替换后客户名": ["新客户A", "新客户B"],
+        }
+    )
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
         template_df.to_excel(writer, index=False, sheet_name="客户名替换")
@@ -113,12 +115,19 @@ def batch_replacement(db_config):
                 db_column = db_config.get("column")
                 id_column = db_config.get("id_column")
 
-                if not all([db_host, db_port, db_user, db_name, db_table, db_column, id_column]):
+                if not all(
+                    [db_host, db_port, db_user, db_name, db_table, db_column, id_column]
+                ):
                     st.error("请在 `config.toml` 中填写所有数据库详细信息。")
                 elif edited_df.empty:
                     st.warning("上传的Excel文件为空或编辑后无数据。")
-                elif (id_column_name not in edited_df.columns and "原客户名" not in edited_df.columns) or "替换后客户名" not in edited_df.columns:
-                    st.error(f"Excel文件必须包含 '{id_column_name}' 或 '原客户名' 列，以及 '替换后客户名' 列。")
+                elif (
+                    id_column_name not in edited_df.columns
+                    and "原客户名" not in edited_df.columns
+                ) or "替换后客户名" not in edited_df.columns:
+                    st.error(
+                        f"Excel文件必须包含 '{id_column_name}' 或 '原客户名' 列，以及 '替换后客户名' 列。"
+                    )
                 else:
                     conn = None
                     try:
@@ -139,8 +148,12 @@ def batch_replacement(db_config):
                             id_val = row.get(id_column_name)
                             old_name = row.get("原客户名")
 
-                            if pd.isna(new_name) or (pd.isna(id_val) and pd.isna(old_name)):
-                                st.warning(f"跳过无效行: ID={id_val}, 原客户名={old_name}, 替换后客户名={new_name}")
+                            if pd.isna(new_name) or (
+                                pd.isna(id_val) and pd.isna(old_name)
+                            ):
+                                st.warning(
+                                    f"跳过无效行: ID={id_val}, 原客户名={old_name}, 替换后客户名={new_name}"
+                                )
                                 continue
 
                             where_clause = ""
@@ -164,7 +177,9 @@ def batch_replacement(db_config):
 
                             progress_bar.progress((i + 1) / len(edited_df))
 
-                        st.success(f"批量替换完成！共替换了 {total_replaced_count} 条记录。")
+                        st.success(
+                            f"批量替换完成！共替换了 {total_replaced_count} 条记录。"
+                        )
                     except mysql.connector.Error as err:
                         handle_db_error(err)
                     except Exception as e:
@@ -198,6 +213,26 @@ def local_css(file_name):
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 
+def _load_db_config():
+    """
+    Load database config(s) from config.toml.
+    Supports single [database] or multi [environments.<name>.database].
+    Returns: (env_names, env_to_db_config)
+    """
+    config = toml.load("config.toml")
+
+    if "environments" in config:
+        envs = config.get("environments", {})
+        env_to_db = {}
+        for name, env_cfg in envs.items():
+            env_to_db[name] = env_cfg.get("database", {})
+        env_names = list(env_to_db.keys())
+        return env_names, env_to_db
+
+    # Backward compatible single environment
+    return ["default"], {"default": config.get("database", {})}
+
+
 def main():
     """
     Main function to run the Streamlit application.
@@ -209,21 +244,30 @@ def main():
 
     # Load configuration from config.toml
     try:
-        config = toml.load("config.toml")
-        db_config = config.get("database", {})
+        env_names, env_to_db = _load_db_config()
     except FileNotFoundError:
         st.error("配置文件 `config.toml` 未找到。请创建它。")
+        st.stop()
+    except Exception as e:
+        st.error(f"读取配置文件失败: {e}")
         st.stop()
 
     # Sidebar for navigation
     st.sidebar.title("导航")
+    if not env_names:
+        st.error("未在 `config.toml` 中找到任何可用环境。")
+        st.stop()
+
+    selected_env = st.sidebar.selectbox("选择环境", env_names, index=0)
+    db_config = env_to_db.get(selected_env, {})
+
     selection = st.sidebar.radio("选择操作模式", ["单个替换", "批量替换"])
 
     # Display selected page
     if selection == "单个替换":
-        single_replacement(db_config)
+        single_replacement(db_config, selected_env)
     elif selection == "批量替换":
-        batch_replacement(db_config)
+        batch_replacement(db_config, selected_env)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,19 @@
-[database]
+[environments.dev.database]
 host = "127.0.0.1"
 port = 3306
 user = "root"
 password = ""
-database = "test"
+database = "test_dev"
+table = "your_table"
+column = "your_column"
+id_column = "your_id_column"
+
+[environments.prod.database]
+host = "10.0.0.5"
+port = 3306
+user = "root"
+password = "your_password"
+database = "test_prod"
 table = "your_table"
 column = "your_column"
 id_column = "your_id_column"
